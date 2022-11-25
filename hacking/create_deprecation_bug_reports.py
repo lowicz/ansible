@@ -35,8 +35,7 @@ class Issue:
     def create(self) -> str:
         cmd = ['gh', 'issue', 'create', '--title', self.title, '--body', self.body, '--project', self.project]
         process = subprocess.run(cmd, capture_output=True, check=True)
-        url = process.stdout.decode().strip()
-        return url
+        return process.stdout.decode().strip()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -112,16 +111,18 @@ class DeprecatedConfig(Deprecation):
 
     @staticmethod
     def parse(message: str) -> DeprecatedConfig:
-        match = re.search('^(?P<path>.*):[0-9]+:[0-9]+: (?P<config>.*) is scheduled for removal in (?P<version>[0-9.]+)$', message)
+        if match := re.search(
+            '^(?P<path>.*):[0-9]+:[0-9]+: (?P<config>.*) is scheduled for removal in (?P<version>[0-9.]+)$',
+            message,
+        ):
+            return DeprecatedConfig(
+                path=match['path'],
+                config=match['config'],
+                version=match['version'],
+            )
 
-        if not match:
+        else:
             raise Exception(f'Unable to parse: {message}')
-
-        return DeprecatedConfig(
-            path=match.group('path'),
-            config=match.group('config'),
-            version=match.group('version'),
-        )
 
     def create_bug_report(self) -> BugReport:
         return BugReport(
@@ -145,18 +146,20 @@ class UpdateBundled(Deprecation):
 
     @staticmethod
     def parse(message: str) -> UpdateBundled:
-        match = re.search('^(?P<path>.*):[0-9]+:[0-9]+: UPDATE (?P<package>.*) from (?P<old>[0-9.]+) to (?P<new>[0-9.]+) (?P<link>https://.*)$', message)
+        if match := re.search(
+            '^(?P<path>.*):[0-9]+:[0-9]+: UPDATE (?P<package>.*) from (?P<old>[0-9.]+) to (?P<new>[0-9.]+) (?P<link>https://.*)$',
+            message,
+        ):
+            return UpdateBundled(
+                path=match['path'],
+                package=match['package'],
+                old_version=match['old'],
+                new_version=match['new'],
+                json_link=match['link'],
+            )
 
-        if not match:
+        else:
             raise Exception(f'Unable to parse: {message}')
-
-        return UpdateBundled(
-            path=match.group('path'),
-            package=match.group('package'),
-            old_version=match.group('old'),
-            new_version=match.group('new'),
-            json_link=match.group('link'),
-        )
 
     def create_bug_report(self) -> BugReport:
         return BugReport(
@@ -211,20 +214,19 @@ def parse_args() -> Args:
     if not parsed_args.tests:
         parsed_args.tests = list(TEST_OPTIONS)
 
-    kvp = {}
+    kvp = {
+        field.name: getattr(parsed_args, field.name)
+        for field in dataclasses.fields(Args)
+    }
 
-    for field in dataclasses.fields(Args):
-        kvp[field.name] = getattr(parsed_args, field.name)
 
-    args = Args(**kvp)
-
-    return args
+    return Args(**kvp)
 
 
 def run_sanity_test(test_name: str) -> list[str]:
     cmd = ['ansible-test', 'sanity', '--test', test_name, '--lint', '--failure-ok']
     skip_path = 'test/sanity/code-smell/skip.txt'
-    skip_temp_path = skip_path + '.tmp'
+    skip_temp_path = f'{skip_path}.tmp'
 
     os.rename(skip_path, skip_temp_path)  # make sure ansible-test isn't configured to skip any tests
 
@@ -233,16 +235,13 @@ def run_sanity_test(test_name: str) -> list[str]:
     finally:
         os.rename(skip_temp_path, skip_path)  # restore the skip entries
 
-    messages = process.stdout.decode().splitlines()
-
-    return messages
+    return process.stdout.decode().splitlines()
 
 
 def create_issues(test_type: t.Type[Deprecation], messages: list[str]) -> list[Issue]:
     deprecations = [test_type.parse(message) for message in messages]
     bug_reports = [deprecation.create_bug_report() for deprecation in deprecations]
-    issues = [bug_report.create_issue(PROJECT) for bug_report in bug_reports]
-    return issues
+    return [bug_report.create_issue(PROJECT) for bug_report in bug_reports]
 
 
 def info(message: str) -> None:
