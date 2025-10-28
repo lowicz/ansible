@@ -79,7 +79,17 @@ def get_v3_collection_versions(namespace='namespace', name='collection'):
     pagination_path = f"/api/galaxy/content/community/v3/plugin/{namespace}/content/community/collections/index/{namespace}/{name}/versions"
     page_versions = (('1.0.0', '1.0.1',), ('1.0.2', '1.0.3',), ('1.0.4', '1.0.5'),)
     responses = [
-        {},  # TODO: initial response
+        {
+            "namespace": {"name": namespace},
+            "name": name,
+            "href": f"https://galaxy.server.com/api/v3/collections/{namespace}/{name}/",
+            "created_at": "2022-05-13T15:55:58.913107Z",
+            "updated_at": "2022-05-14T10:00:00.000000Z",
+            "latest_version": {
+                "version": "1.0.5",
+                "href": f"https://galaxy.server.com/api/v3/collections/{namespace}/{name}/versions/1.0.5/",
+            },
+        },
     ]
 
     first = f"{pagination_path}/?limit=100"
@@ -1227,6 +1237,7 @@ def test_cache_complete_pagination_v3(cache_dir, monkeypatch):
 
     assert final_cache == api._cache
     assert cached_versions == actual_versions
+    assert cached_server['modified']['namespace.collection'] == '2022-05-14T10:00:00.000000Z'
 
 
 def test_cache_flaky_pagination(cache_dir, monkeypatch):
